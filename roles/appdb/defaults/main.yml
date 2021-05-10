@@ -1,0 +1,6 @@
+---
+# defaults file for Appdb
+state: present
+size: 1
+root_username: cm9vdA==
+root_password: cm9vdA==

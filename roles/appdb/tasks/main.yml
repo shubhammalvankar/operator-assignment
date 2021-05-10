@@ -1,0 +1,114 @@
+---
+# tasks file for Appdb
+- name: Create configmap
+  community.kubernetes.k8s:
+    definition:
+      kind: ConfigMap
+      apiVersion: v1
+      metadata:
+        name: '{{ ansible_operator_meta.name }}-mysql-configmap'
+        namespace: '{{ ansible_operator_meta.namespace }}'
+      data:
+        database: employee_db
+        host: mysql
+
+- name: Create secret for mysql
+  community.kubernetes.k8s:
+    definition:
+      kind: Secret
+      apiVersion: v1
+      metadata:
+        name: '{{ ansible_operator_meta.name }}-mysql-secret'
+        namespace: '{{ ansible_operator_meta.namespace }}'
+      type: Opaque
+      data:
+        root-username: '{{root_username}}'
+        root-password: '{{root_password}}'
+
+- name: Create mysql service
+  community.kubernetes.k8s:
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: mysql
+        namespace: '{{ ansible_operator_meta.namespace }}'
+        labels:
+          app: mysql
+          tier: database
+      spec:
+        ports:
+          - port: 3306
+            targetPort: 3306
+        selector:
+          app: mysql
+          tier: database
+        clusterIP: None
+
+- name: Create Persistent Volume Claim
+  community.kubernetes.k8s:
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: mysql-pv-claim
+        namespace: '{{ ansible_operator_meta.namespace }}'
+        labels:
+          app: mysql
+          tier: database
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+- name: Create mysql deployment
+  community.kubernetes.k8s:
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: '{{ ansible_operator_meta.name }}'
+        namespace: '{{ ansible_operator_meta.namespace }}'
+        labels:
+          app: mysql
+          tier: database
+      spec:
+        selector:
+          matchLabels:
+            app: mysql
+            tier: database
+        strategy:
+          type: Recreate
+        template:
+          metadata:
+            labels:
+              app: mysql
+              tier: database
+          spec:
+            containers:
+              - image: mysql:8.0.23
+                name: mysql
+                env:
+                  - name: MYSQL_ROOT_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: '{{ ansible_operator_meta.name }}-mysql-secret'
+                        key: root-password
+                  - name: MYSQL_DATABASE
+                    valueFrom:
+                      configMapKeyRef:
+                        name: '{{ ansible_operator_meta.name }}-mysql-configmap'
+                        key: database
+                ports:
+                  - containerPort: 3306
+                    name: mysql
+                volumeMounts:
+                  - name: mysql-persistent-storage
+                    mountPath: /var/lib/mysql
+            volumes:
+              - name: mysql-persistent-storage
+                persistentVolumeClaim:
+                  claimName: mysql-pv-claim
+        
